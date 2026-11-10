@@ -1,0 +1,20 @@
+server:
+  port: 8080
+
+spring:
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false   # Instants stored as ISO-8601 strings in the ticker files
+
+fmp:
+  base-url: https://financialmodelingprep.com/stable
+  # Set the FMP_API_KEY environment variable (free key from https://site.financialmodelingprep.com/)
+  api-key: ${FMP_API_KEY:}
+
+app:
+  # One JSON file per ticker: cached statement facts + analyst consensus + your manual guidance
+  data-dir: ${APP_DATA_DIR:./data}
+  # Statement facts change once a year; re-check weekly (or press "Refresh data" in the UI)
+  financials-ttl: 7d
+  # Analyst consensus / price targets move slowly; re-check daily
+  estimates-ttl: 1d

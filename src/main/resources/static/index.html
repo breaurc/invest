@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Valuation Model</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --txt:#1c1e21; --muted:#6b7280;
+          --data:#e8f1fb; --input:#fff7e0; --comp:#eaf7ee; --cons:#f1ecfb; --guid:#fdeee4; --accent:#2563eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--txt); background:var(--bg); }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  input[type=text] { padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; width:140px; text-transform:uppercase; }
+  input.num { width:90px; padding:5px 6px; border:1px solid #d9b85a; border-radius:5px; font-size:13px; text-align:right; background:var(--input); }
+  input.num:invalid { border-color:#b91c1c; }
+  button { padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#fff; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .muted { color:var(--muted); font-size:13px; }
+  .err { color:#b91c1c; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { background:#fafafa; font-weight:600; }
+  td.data { background:var(--data); }
+  td.inp  { background:var(--input); }
+  td.comp { background:var(--comp); }
+  td.cons { background:var(--cons); color:#4c3d7a; font-size:13px; }
+  td.cons small { color:var(--muted); }
+  td.guid { background:var(--guid); }
+  input.num.guid { border-color:#e0a070; background:var(--guid); }
+  button.ghost { background:#fff; color:var(--accent); border:1px solid var(--line); }
+  a.ext { color:var(--accent); text-decoration:none; } a.ext:hover { text-decoration:underline; }
+  select { padding:5px 6px; border:1px solid var(--line); border-radius:6px; font-size:13px; background:#fff; }
+  button.secondary { background:#6d5bb5; }
+  tr.sep td { border-bottom:0; height:6px; padding:0; background:transparent; }
+  .legend span { display:inline-block; padding:2px 8px; border-radius:4px; margin-right:8px; font-size:12px; }
+  .meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-top:10px; }
+  .meta div { background:#fafafa; border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+  .meta b { display:block; font-size:12px; color:var(--muted); font-weight:500; }
+  .yrs { margin-left:auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Valuation model</h1>
+
+  <div class="card">
+    <div class="row">
+      <input id="symbol" type="text" placeholder="Ticker, e.g. AAPL" value="AAPL">
+      <button id="load">Load data</button>
+      <button id="refresh" class="ghost" title="Ignore the local cache and fetch statement facts and analyst consensus again from FMP" disabled>Refresh data</button>
+      <label class="yrs muted">Projected years
+        <select id="nyears"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select>
+      </label>
+    </div>
+    <div id="status" class="muted" style="margin-top:8px">Enter a ticker and load the base-year data.</div>
+    <div id="meta" class="meta" hidden></div>
+  </div>
+
+  <div class="card" id="modelCard" hidden>
+    <div class="legend muted" style="margin-bottom:10px">
+      <span style="background:var(--data)">DATA (from FMP)</span>
+      <span style="background:var(--input)">INPUT (you)</span>
+      <span style="background:var(--comp)">COMPUTED</span>
+      <span style="background:var(--cons)" title="Consensus PE = analyst price-target low / high divided by the consensus EPS of the year. Price targets are usually 12-month targets, so later years are indicative only.">CONSENSUS (analysts, read-only)</span>
+      <span style="background:var(--guid)" title="Company guidance from the earnings release / 8-K, typed by you; saved per ticker">GUIDANCE (company, you type it)</span>
+      &nbsp; Shares outstanding are kept constant across projected years.
+    </div>
+    <div class="row" style="margin-bottom:12px">
+      <label class="muted">Consensus estimate
+        <select id="consVariant" title="Low / High use the analysts' low / high estimate for the year against the previous year's average (or the reported base year)">
+          <option value="Low">Low</option><option value="Avg" selected>Average</option><option value="High">High</option>
+        </select>
+      </label>
+      <button id="prefill" class="secondary" title="Copy consensus revenue growth, net income growth and PE low / high into the INPUT cells">Pre-fill from consensus</button>
+      <span id="consInfo" class="muted"></span>
+    </div>
+    <div class="row" style="margin-bottom:12px">
+      <button id="prefillGuid" class="secondary" style="background:#c2703a" title="Copy the guidance growth rates you typed into the INPUT cells">Pre-fill from guidance</button>
+      <span class="muted">Guidance is published in the earnings release (8-K, exhibit 99.1):</span>
+      <a id="edgarLink" class="ext" href="#" target="_blank" rel="noopener">Open latest 8-K filings on SEC EDGAR &#8599;</a>
+      <span id="guidInfo" class="muted"></span>
+    </div>
+    <table id="model"></table>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let base = null;
+  let estimates = {};  // fiscalYear -> AnalystEstimate (consensus for projected years)
+  let priceTarget = null; // {targetLow, targetHigh, targetConsensus, targetMedian} or null
+  let guidance = {};      // fiscalYear -> {revenueGrowthPct, netIncomeGrowthPct} typed by the user, stored per ticker
+  let inputs = [];     // one per projected year: {revenueGrowthPct, netIncomeGrowthPct, peLow, peHigh}
+
+  const fmtMoney = v => Math.abs(v) >= 1e9 ? (v/1e9).toFixed(2)+' B' : Math.abs(v) >= 1e6 ? (v/1e6).toFixed(2)+' M' : v.toFixed(0);
+  const fmt2 = v => v == null ? '' : v.toFixed(2);
+  const pct = v => v == null ? '' : v.toFixed(2)+' %';
+
+  $('load').onclick = () => loadBase(false);
+  $('refresh').onclick = () => loadBase(true);
+  $('prefillGuid').onclick = prefillFromGuidance;
+  $('symbol').addEventListener('keydown', e => { if (e.key === 'Enter') loadBase(false); });
+  $('nyears').onchange = () => { if (base) { ensureInputs(); recompute(); } };
+  $('consVariant').onchange = () => { if (base) recompute(); };
+  $('prefill').onclick = prefillFromConsensus;
+
+  const fmtWhen = iso => { const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString(); };
+
+  async function loadBase(refresh) {
+    const sym = $('symbol').value.trim();
+    if (!sym) return;
+    $('load').disabled = true; $('refresh').disabled = true;
+    $('status').textContent = (refresh ? 'Refreshing ' : 'Loading ') + sym.toUpperCase() + ' from FMP…';
+    $('status').className = 'muted';
+    try {
+      const r = await fetch('/api/base/' + encodeURIComponent(sym) + (refresh ? '?refresh=true' : ''));
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || r.statusText);
+      base = body;
+      $('status').textContent = `${base.name} (${base.symbol}) — base fiscal year ${base.fiscalYear}`
+        + (base.periodEndDate ? `, ended ${base.periodEndDate}` : '')
+        + (base.filingDate ? `, annual statement filed ${base.filingDate}` : '')
+        + (base.financialsCached ? ` · statement facts from local cache (fetched ${fmtWhen(base.financialsFetchedAt)})` : ' · statement facts fetched now')
+        + ' · quote live';
+      $('meta').hidden = false;
+      $('meta').innerHTML = [
+        ['Fiscal year end', base.periodEndDate || '–'],
+        ['Statement filed', base.filingDate || '–'],
+        [`Revenue growth FY${base.fiscalYear}`, base.revenueGrowthPct == null ? 'n/a' : pct(base.revenueGrowthPct)],
+        [`Net inc. growth FY${base.fiscalYear}`, base.netIncomeGrowthPct == null ? 'n/a' : pct(base.netIncomeGrowthPct)],
+        ['Price', fmt2(base.price)],
+        ['52w low / high', fmt2(base.priceLow52w)+' / '+fmt2(base.priceHigh52w)],
+        ['EPS (diluted)', fmt2(base.eps)],
+        ['Shares outstanding', fmtMoney(base.sharesOutstanding)],
+        ['PE now', fmt2(base.peCurrent)],
+        ['PE low / high (52w)', fmt2(base.peLow)+' / '+fmt2(base.peHigh)],
+      ].map(([k,v]) => `<div><b>${k}</b>${v}</div>`).join('');
+      await Promise.all([loadEstimates(refresh), loadGuidance()]);
+      $('edgarLink').href = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${encodeURIComponent(base.symbol)}&type=8-K&dateb=&owner=include&count=20`;
+      inputs = [];
+      ensureInputs();
+      $('modelCard').hidden = false;
+      await recompute();
+    } catch (e) {
+      $('status').textContent = 'Error: ' + e.message;
+      $('status').className = 'muted err';
+    } finally {
+      $('load').disabled = false; $('refresh').disabled = !base;
+    }
+  }
+
+  async function loadEstimates(refresh) {
+    estimates = {}; priceTarget = null;
+    let cacheNote = '';
+    try {
+      const r = await fetch(`/api/estimates/${encodeURIComponent(base.symbol)}?baseYear=${base.fiscalYear}${refresh ? '&refresh=true' : ''}`);
+      if (r.ok) {
+        const body = await r.json();
+        for (const e of body.years || []) estimates[e.fiscalYear] = e;
+        priceTarget = body.priceTarget || null;
+        cacheNote = body.cached ? ` (cached, fetched ${fmtWhen(body.fetchedAt)})` : ' (fetched now)';
+      }
+    } catch (e) { /* consensus is optional */ }
+    const years = Object.keys(estimates);
+    $('prefill').disabled = years.length === 0;
+    $('consInfo').textContent = years.length
+      ? `Analyst consensus available for FY${years[0]}–FY${years[years.length-1]}` + (priceTarget ? `, price targets ${fmt2(priceTarget.targetLow)}–${fmt2(priceTarget.targetHigh)}` : ', no price targets') + cacheNote
+      : 'No analyst consensus available for this ticker';
+    if (priceTarget) {
+      $('meta').insertAdjacentHTML('beforeend',
+        `<div><b>Price target low / high</b>${fmt2(priceTarget.targetLow)} / ${fmt2(priceTarget.targetHigh)}</div>` +
+        `<div><b>Price target consensus / median</b>${fmt2(priceTarget.targetConsensus)} / ${fmt2(priceTarget.targetMedian)}</div>`);
+    }
+  }
+
+  async function loadGuidance() {
+    guidance = {};
+    try {
+      const r = await fetch(`/api/guidance/${encodeURIComponent(base.symbol)}`);
+      if (r.ok) guidance = await r.json();
+    } catch (e) { /* guidance is optional */ }
+    const n = Object.keys(guidance).length;
+    $('guidInfo').textContent = n ? `Saved guidance for ${n} year(s)` : 'No guidance saved yet: type it in the GUIDANCE rows';
+  }
+
+  async function saveGuidance() {
+    try {
+      const r = await fetch(`/api/guidance/${encodeURIComponent(base.symbol)}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(guidance) });
+      if (r.ok) {
+        guidance = await r.json();
+        $('guidInfo').textContent = `Guidance saved (${Object.keys(guidance).length} year(s))`;
+      } else {
+        $('guidInfo').textContent = 'Could not save guidance';
+      }
+    } catch (e) { $('guidInfo').textContent = 'Could not save guidance: ' + e.message; }
+  }
+
+  function prefillFromGuidance() {
+    if (!base) return;
+    let filled = 0;
+    inputs.forEach((inp, i) => {
+      const g = guidance[base.fiscalYear + 1 + i];
+      if (!g) return;
+      let any = false;
+      if (g.revenueGrowthPct != null)   { inp.revenueGrowthPct = g.revenueGrowthPct; any = true; }
+      if (g.netIncomeGrowthPct != null) { inp.netIncomeGrowthPct = g.netIncomeGrowthPct; any = true; }
+      if (any) filled++;
+    });
+    $('guidInfo').textContent = filled ? `Filled ${filled} year(s) from guidance` : 'No guidance for the projected years';
+    recompute();
+  }
+
+  // Consensus growth for a projected year vs. the previous year.
+  // Previous-year reference: reported base-year value for the first projected year, otherwise the prior year's average estimate.
+  function consensusGrowth(year, variant) {
+    const e = estimates[year];
+    if (!e) return null;
+    const prev = year === base.fiscalYear + 1 ? { revenue: base.revenue, netIncome: base.netIncome }
+               : estimates[year-1] ? { revenue: estimates[year-1].revenueAvg, netIncome: estimates[year-1].netIncomeAvg } : null;
+    if (!prev || !prev.revenue || !prev.netIncome) return null;
+    const g = (cur, prv) => (cur / prv - 1) * 100;
+    const eps = e['eps'+variant];
+    // Consensus PE: analyst price-target low / high divided by the consensus EPS of the year
+    const pe = priceTarget && eps > 0 ? { peLow: priceTarget.targetLow / eps, peHigh: priceTarget.targetHigh / eps } : {};
+    return {
+      rev: g(e['revenue'+variant], prev.revenue), ni: g(e['netIncome'+variant], prev.netIncome),
+      eps, nRev: e.numAnalystsRevenue, nEps: e.numAnalystsEps, ...pe
+    };
+  }
+
+  function prefillFromConsensus() {
+    if (!base) return;
+    const variant = $('consVariant').value;
+    let filled = 0;
+    inputs.forEach((inp, i) => {
+      const g = consensusGrowth(base.fiscalYear + 1 + i, variant);
+      if (!g) return;
+      inp.revenueGrowthPct = +g.rev.toFixed(1);
+      inp.netIncomeGrowthPct = +g.ni.toFixed(1);
+      if (g.peLow != null)  inp.peLow  = +g.peLow.toFixed(1);
+      if (g.peHigh != null) inp.peHigh = +g.peHigh.toFixed(1);
+      filled++;
+    });
+    $('consInfo').textContent = filled ? `Filled ${filled} year(s) from ${variant.toLowerCase()} consensus` : 'No consensus for the projected years';
+    recompute();
+  }
+
+  function ensureInputs() {
+    const n = +$('nyears').value;
+    while (inputs.length < n) {
+      const prev = inputs[inputs.length-1];
+      inputs.push(prev ? {...prev} : { revenueGrowthPct: 5, netIncomeGrowthPct: 5,
+        peLow: +base.peLow.toFixed(1), peHigh: +base.peHigh.toFixed(1) });
+    }
+    inputs.length = n;
+  }
+
+  async function recompute() {
+    const r = await fetch('/api/projection', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ base, years: inputs })
+    });
+    const body = await r.json();
+    if (!r.ok) { $('status').textContent = 'Error: ' + (body.error || r.statusText); $('status').className='muted err'; return; }
+    render(body);
+  }
+
+  // Plain text box restricted to numeric input: optional leading minus, digits, one decimal separator (. or ,)
+  const NUM_RE = /^-?\d*([.,]\d*)?$/;
+  function inputCell(store, key, field) {
+    const v = store === 'inputs' ? inputs[key][field] : (guidance[key] || {})[field];
+    const cls = store === 'inputs' ? 'inp' : 'guid';
+    return `<td class="${cls}"><input type="text" class="num ${cls === 'guid' ? 'guid' : ''}" inputmode="decimal" autocomplete="off" pattern="-?[0-9]*([.,][0-9]*)?" `
+         + `data-store="${store}" data-key="${key}" data-f="${field}" value="${v == null ? '' : v}" placeholder="${cls === 'guid' ? '–' : ''}"></td>`;
+  }
+  function sanitizeNumeric(el) {
+    if (NUM_RE.test(el.value)) return;
+    let v = el.value.replace(/[^0-9.,-]/g, '');
+    const neg = v.startsWith('-');
+    v = v.replace(/-/g, '');
+    const m = v.match(/^(\d*)([.,](\d*))?/);
+    v = m ? m[1] + (m[2] ? m[2][0] + m[3] : '') : '';
+    el.value = (neg ? '-' : '') + v;
+  }
+  const toNumber = v => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? 0 : n; };
+
+  function commit(el) {
+    const f = el.dataset.f;
+    if (el.dataset.store === 'guidance') {
+      const year = +el.dataset.key;
+      const v = el.value.trim() === '' ? null : toNumber(el.value);
+      el.value = v == null ? '' : v;
+      const cur = guidance[year] || {};
+      if ((cur[f] ?? null) === v) return;
+      guidance[year] = { ...cur, [f]: v };
+      saveGuidance();                        // guidance is informational: saved, not recomputed
+      return;
+    }
+    const i = +el.dataset.key;
+    const v = toNumber(el.value);
+    el.value = v;
+    if (inputs[i][f] === v) return;          // nothing changed: no recompute, keep the table as is
+    inputs[i][f] = v;
+    recompute();
+  }
+
+  function render(years) {
+    // Remember which input box has focus (if any) so it can be restored after the table is rebuilt
+    const active = document.activeElement;
+    const focus = active && active.classList && active.classList.contains('num')
+      ? { store: active.dataset.store, key: active.dataset.key, f: active.dataset.f } : null;
+
+    const head = '<thead><tr><th>Year</th>' + years.map(y => `<th>${y.year}${y.base ? ' (base)' : ' (est.)'}</th>`).join('') + '</tr></thead>';
+    const rows = [];
+    const row = (label, cells) => rows.push(`<tr><td>${label}</td>${cells.join('')}</tr>`);
+    const sep = () => rows.push('<tr class="sep"><td colspan="99"></td></tr>');
+    const c = (cls, v) => `<td class="${cls}">${v}</td>`;
+    const variant = $('consVariant').value;
+    const cons = (y, f) => {
+      if (y.base) return c('cons', '');
+      const g = consensusGrowth(y.year, variant);
+      if (!g) return c('cons', '<small>n/a</small>');
+      if (f === 'peLow' || f === 'peHigh') {
+        if (g[f] == null) return c('cons', '<small>n/a</small>');
+        const pt = f === 'peLow' ? priceTarget.targetLow : priceTarget.targetHigh;
+        return c('cons', `${fmt2(g[f])} <small>(PT ${fmt2(pt)})</small>`);
+      }
+      const n = f === 'eps' ? g.nEps : g.nRev;
+      return c('cons', `${f === 'eps' ? fmt2(g.eps) : pct(g[f])} <small>(${n})</small>`);
+    };
+
+    row('Revenue',          years.map(y => c(y.base ? 'data' : 'comp', fmtMoney(y.revenue))));
+    row('Revenue Growth',   years.map((y,i) => y.base ? c('data', pct(base.revenueGrowthPct)) : inputCell('inputs', i-1, 'revenueGrowthPct')));
+    row('Consensus Rev. Growth', years.map(y => cons(y, 'rev')));
+    row('Guidance Rev. Growth',  years.map(y => y.base ? c('guid','') : inputCell('guidance', y.year, 'revenueGrowthPct')));
+    sep();
+    row('Net Income',       years.map(y => c('comp', fmtMoney(y.netIncome))));
+    row('Net Inc. Growth',  years.map((y,i) => y.base ? c('data', pct(base.netIncomeGrowthPct)) : inputCell('inputs', i-1, 'netIncomeGrowthPct')));
+    row('Consensus NI Growth', years.map(y => cons(y, 'ni')));
+    row('Guidance NI Growth',  years.map(y => y.base ? c('guid','') : inputCell('guidance', y.year, 'netIncomeGrowthPct')));
+    row('Net Inc. Margin',  years.map(y => c('comp', pct(y.netIncomeMarginPct))));
+    sep();
+    row('EPS',              years.map(y => c(y.base ? 'data' : 'comp', fmt2(y.eps))));
+    row('Consensus EPS',    years.map(y => cons(y, 'eps')));
+    sep();
+    row('PE Low Est',       years.map((y,i) => y.base ? c('data', fmt2(y.peLow))  : inputCell('inputs', i-1, 'peLow')));
+    row('Consensus PE Low',  years.map(y => cons(y, 'peLow')));
+    row('PE High Est',      years.map((y,i) => y.base ? c('data', fmt2(y.peHigh)) : inputCell('inputs', i-1, 'peHigh')));
+    row('Consensus PE High', years.map(y => cons(y, 'peHigh')));
+    sep();
+    row('Share Price Low',  years.map(y => c(y.base ? 'data' : 'comp', fmt2(y.sharePriceLow))));
+    row('Share Price High', years.map(y => c(y.base ? 'data' : 'comp', fmt2(y.sharePriceHigh))));
+
+    $('model').innerHTML = head + '<tbody>' + rows.join('') + '</tbody>';
+    $('model').querySelectorAll('input.num').forEach(el => {
+      el.addEventListener('beforeinput', e => {
+        // Block non-numeric characters before they land in the box (paste is cleaned up in oninput)
+        if (e.data && /[^0-9.,-]/.test(e.data)) e.preventDefault();
+      });
+      // While typing only sanitize; the model is recomputed when the user leaves the box (blur / Enter)
+      el.oninput = () => sanitizeNumeric(el);
+      el.onkeydown = e => { if (e.key === 'Enter') el.blur(); };
+      el.onblur = () => commit(el);
+    });
+    if (focus) {
+      const el = $('model').querySelector(`input.num[data-store="${focus.store}"][data-key="${focus.key}"][data-f="${focus.f}"]`);
+      if (el) { el.focus(); el.select(); }
+    }
+  }
+})();
+</script>
+</body>
+</html>
